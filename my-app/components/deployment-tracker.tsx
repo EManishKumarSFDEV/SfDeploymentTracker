@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react'
-import { createClient, SupabaseClient, User as SupabaseUser } from '@supabase/supabase-js'
+import React, { useState, useRef, useEffect } from 'react'
+import { createClient } from '@supabase/supabase-js'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -12,9 +12,10 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { tomorrow } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
 // Initialize Supabase client
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string
-export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey)
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
 type FieldChange = {
   date: string
@@ -67,13 +68,15 @@ type UserStory = {
 
 type User = {
   id: string
-  email?: string | undefined
+  username: string
+  password: string // In a real app, this should be hashed
 }
 
 export default function Component() {
-  const [currentUser, setCurrentUser] = useState<SupabaseUser | null>(null)
+  const [users, setUsers] = useState<User[]>([])
+  const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [isRegistering, setIsRegistering] = useState(false)
-  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [userStories, setUserStories] = useState<UserStory[]>([])
   const [newStoryExpanded, setNewStoryExpanded] = useState(false)
@@ -88,42 +91,9 @@ export default function Component() {
   const storiesPerPage = 10
 
   useEffect(() => {
-    const checkUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      setCurrentUser(user)
-    }
-    checkUser()
+    fetchUsers()
+    fetchUserStories()
   }, [])
-
-  useEffect(() => {
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      const currentUser = session?.user
-      setCurrentUser(currentUser ?? null)
-    })
-
-    return () => {
-      authListener.subscription.unsubscribe()
-    }
-  }, [])
-
-  const fetchUserStories = useCallback(async () => {
-    if (!currentUser) return
-    const { data, error } = await supabase
-      .from('user_stories')
-      .select('*')
-      .eq('userId', currentUser.id)
-    if (error) {
-      console.error('Error fetching user stories:', error)
-    } else {
-      setUserStories(data)
-    }
-  }, [currentUser])
-
-  useEffect(() => {
-    if (currentUser) {
-      fetchUserStories()
-    }
-  }, [currentUser, fetchUserStories])
 
   useEffect(() => {
     if (errorMessage) {
@@ -132,31 +102,58 @@ export default function Component() {
     }
   }, [errorMessage])
 
-  const handleAuthentication = async (e: React.FormEvent) => {
-    e.preventDefault()
-    try {
-      if (isRegistering) {
-        const { data, error } = await supabase.auth.signUp({ email, password })
-        if (error) throw error
-        if (data.user) setErrorMessage('Check your email for the confirmation link.')
-      } else {
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-        if (error) throw error
-      }
-    } catch (error) {
-      if (error instanceof Error) {
-        setErrorMessage(error.message)
-      } else {
-        setErrorMessage('An unknown error occurred')
-      }
+  const fetchUsers = async () => {
+    const { data, error } = await supabase.from('users').select('*')
+    if (error) {
+      console.error('Error fetching users:', error)
+    } else {
+      setUsers(data)
     }
   }
 
-  const handleLogout = async () => {
-    const { error } = await supabase.auth.signOut()
+  const fetchUserStories = async () => {
+    const { data, error } = await supabase.from('user_stories').select('*')
     if (error) {
-      setErrorMessage(error.message)
+      console.error('Error fetching user stories:', error)
+    } else {
+      setUserStories(data)
     }
+  }
+
+  const register = async () => {
+    const { data, error } = await supabase
+      .from('users')
+      .insert([{ username, password }])
+      .select()
+
+    if (error) {
+      setErrorMessage('Error registering user')
+    } else {
+      setCurrentUser(data[0])
+      setUsername('')
+      setPassword('')
+    }
+  }
+
+  const login = async () => {
+    const { data, error } = await supabase
+      .from('users')
+      .select()
+      .eq('username', username)
+      .eq('password', password)
+      .single()
+
+    if (error) {
+      setErrorMessage('Invalid username or password')
+    } else {
+      setCurrentUser(data)
+      setUsername('')
+      setPassword('')
+    }
+  }
+
+  const logout = () => {
+    setCurrentUser(null)
   }
 
   const addUserStory = async () => {
@@ -265,14 +262,14 @@ export default function Component() {
   const toggleStoryExpansion = (storyId: string) => {
     setExpandedStories(prev =>
       prev.includes(storyId)
-        ? prev.filter(id => id !== storyId)
+        ? prev.filter(id => id !== id)
         : [...prev, storyId]
     )
   }
 
   const filteredStories = userStories.filter(story => {
     const matchesNumber = filterNumber ? story.number.includes(filterNumber) : true
-    return matchesNumber
+    return matchesNumber && story.userId === currentUser?.id
   })
 
   const indexOfLastStory = currentPage * storiesPerPage
@@ -289,14 +286,13 @@ export default function Component() {
             <CardTitle>{isRegistering ? 'Register' : 'Login'}</CardTitle>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleAuthentication} className="space-y-4">
+            <form onSubmit={(e) => { e.preventDefault(); isRegistering ? register() : login(); }} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="username">Username</Label>
                 <Input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  id="username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
                   required
                 />
               </div>
@@ -322,11 +318,6 @@ export default function Component() {
             </p>
           </CardContent>
         </Card>
-        {errorMessage && (
-          <div className="fixed top-0 left-0 right-0 bg-red-500 text-white p-2 text-center z-50">
-            {errorMessage}
-          </div>
-        )}
       </div>
     )
   }
@@ -342,8 +333,8 @@ export default function Component() {
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-4xl font-bold text-blue-700">Salesforce Deployment Tracker</h1>
           <div className="flex items-center space-x-4">
-            <span className="text-gray-600">Welcome, {currentUser.email}</span>
-            <Button onClick={handleLogout}>Logout</Button>
+            <span className="text-gray-600">Welcome, {currentUser.username}</span>
+            <Button onClick={logout}>Logout</Button>
           </div>
         </div>
         
@@ -487,28 +478,28 @@ function ChangeForm({ storyId, addChange, setErrorMessage }: { storyId: string, 
           setErrorMessage('Please fill in all required fields for Field Change.')
           return
         }
-        changeDetails = { date, apiName: fieldApiName, label: fieldLabel, fieldType, note } as FieldChange
+        changeDetails = { date, apiName: fieldApiName, label: fieldLabel, fieldType, note }
         break
       case 'LWC':
         if (!lwcComponentName || !lwcFileType) {
           setErrorMessage('Please fill in all required fields for LWC Change.')
           return
         }
-        changeDetails = { date, componentName: lwcComponentName, fileType: lwcFileType, code: lwcCode, note } as LWCChange
+        changeDetails = { date, componentName: lwcComponentName, fileType: lwcFileType, code: lwcCode, note }
         break
       case 'Profile':
         if (!profile) {
           setErrorMessage('Please enter a profile name.')
           return
         }
-        changeDetails = { date, profile, note } as ProfileChange
+        changeDetails = { date, profile, note }
         break
       case 'Permission':
         if (!permissionSet || !permission) {
           setErrorMessage('Please fill in all required fields for Permission Change.')
           return
         }
-        changeDetails = { date, permissionSet, permission, access: { read: readAccess, write: writeAccess }, note } as PermissionChange
+        changeDetails = { date, permissionSet, permission, access: { read: readAccess, write: writeAccess }, note }
         break
       default:
         setErrorMessage('Invalid change type.')
@@ -604,19 +595,11 @@ function ChangeForm({ storyId, addChange, setErrorMessage }: { storyId: string, 
           <Input placeholder="Permission" value={permission} onChange={(e) => setPermission(e.target.value)} />
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2">
-              <Checkbox
-                id="read"
-                checked={readAccess}
-                onCheckedChange={(checked) => setReadAccess(checked === true)}
-              />
+              <Checkbox id="read" checked={readAccess} onCheckedChange={setReadAccess} />
               <Label htmlFor="read">Read Access</Label>
             </div>
             <div className="flex items-center space-x-2">
-              <Checkbox
-                id="write"
-                checked={writeAccess}
-                onCheckedChange={(checked) => setWriteAccess(checked === true)}
-              />
+              <Checkbox id="write" checked={writeAccess} onCheckedChange={setWriteAccess} />
               <Label htmlFor="write">Write Access</Label>
             </div>
           </div>
