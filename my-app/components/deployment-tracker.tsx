@@ -598,11 +598,19 @@ function ChangeForm({ storyId, addChange, setErrorMessage }: { storyId: string, 
           <Input placeholder="Permission" value={permission} onChange={(e) => setPermission(e.target.value)} />
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2">
-              <Checkbox id="read" checked={readAccess} onCheckedChange={setReadAccess} />
+              <Checkbox 
+                id="read" 
+                checked={readAccess} 
+                onCheckedChange={(checked) => setReadAccess(checked === true)}
+              />
               <Label htmlFor="read">Read Access</Label>
             </div>
             <div className="flex items-center space-x-2">
-              <Checkbox id="write" checked={writeAccess} onCheckedChange={setWriteAccess} />
+              <Checkbox 
+                id="write" 
+                checked={writeAccess} 
+                onCheckedChange={(checked) => setWriteAccess(checked === true)}
+              />
               <Label htmlFor="write">Write Access</Label>
             </div>
           </div>
