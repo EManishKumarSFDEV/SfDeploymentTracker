@@ -289,7 +289,14 @@ export default function Component() {
             <CardTitle>{isRegistering ? 'Register' : 'Login'}</CardTitle>
           </CardHeader>
           <CardContent>
-            <form onSubmit={(e) => { e.preventDefault(); isRegistering ? register() : login(); }} className="space-y-4">
+            <form onSubmit={(e) => { 
+              e.preventDefault(); 
+              if (isRegistering) {
+                register();
+              } else {
+                login();
+              }
+            }} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="username">Username</Label>
                 <Input
