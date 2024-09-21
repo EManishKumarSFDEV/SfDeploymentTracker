@@ -75,6 +75,7 @@ type User = {
 }
 
 export default function Component() {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [users, setUsers] = useState<User[]>([])
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [isRegistering, setIsRegistering] = useState(false)
