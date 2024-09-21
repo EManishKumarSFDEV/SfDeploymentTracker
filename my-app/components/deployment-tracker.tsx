@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react'
-import { createClient } from '@supabase/supabase-js'
+import React, { useState, useRef, useEffect, useCallback } from 'react'
+import { createClient, SupabaseClient, User as SupabaseUser } from '@supabase/supabase-js'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -14,7 +14,7 @@ import { tomorrow } from 'react-syntax-highlighter/dist/esm/styles/prism'
 // Initialize Supabase client
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey)
 
 type FieldChange = {
   date: string
@@ -67,11 +67,11 @@ type UserStory = {
 
 type User = {
   id: string
-  email: string
+  email?: string | undefined
 }
 
 export default function Component() {
-  const [currentUser, setCurrentUser] = useState<User | null>(null)
+  const [currentUser, setCurrentUser] = useState<SupabaseUser | null>(null)
   const [isRegistering, setIsRegistering] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -106,11 +106,24 @@ export default function Component() {
     }
   }, [])
 
+  const fetchUserStories = useCallback(async () => {
+    if (!currentUser) return
+    const { data, error } = await supabase
+      .from('user_stories')
+      .select('*')
+      .eq('userId', currentUser.id)
+    if (error) {
+      console.error('Error fetching user stories:', error)
+    } else {
+      setUserStories(data)
+    }
+  }, [currentUser])
+
   useEffect(() => {
     if (currentUser) {
       fetchUserStories()
     }
-  }, [currentUser])
+  }, [currentUser, fetchUserStories])
 
   useEffect(() => {
     if (errorMessage) {
@@ -123,15 +136,19 @@ export default function Component() {
     e.preventDefault()
     try {
       if (isRegistering) {
-        const { error } = await supabase.auth.signUp({ email, password })
+        const { data, error } = await supabase.auth.signUp({ email, password })
         if (error) throw error
-        setErrorMessage('Check your email for the confirmation link.')
+        if (data.user) setErrorMessage('Check your email for the confirmation link.')
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password })
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) throw error
       }
     } catch (error) {
-      setErrorMessage(error.message)
+      if (error instanceof Error) {
+        setErrorMessage(error.message)
+      } else {
+        setErrorMessage('An unknown error occurred')
+      }
     }
   }
 
@@ -139,19 +156,6 @@ export default function Component() {
     const { error } = await supabase.auth.signOut()
     if (error) {
       setErrorMessage(error.message)
-    }
-  }
-
-  const fetchUserStories = async () => {
-    if (!currentUser) return
-    const { data, error } = await supabase
-      .from('user_stories')
-      .select('*')
-      .eq('userId', currentUser.id)
-    if (error) {
-      console.error('Error fetching user stories:', error)
-    } else {
-      setUserStories(data)
     }
   }
 
@@ -483,28 +487,28 @@ function ChangeForm({ storyId, addChange, setErrorMessage }: { storyId: string, 
           setErrorMessage('Please fill in all required fields for Field Change.')
           return
         }
-        changeDetails = { date, apiName: fieldApiName, label: fieldLabel, fieldType, note }
+        changeDetails = { date, apiName: fieldApiName, label: fieldLabel, fieldType, note } as FieldChange
         break
       case 'LWC':
         if (!lwcComponentName || !lwcFileType) {
           setErrorMessage('Please fill in all required fields for LWC Change.')
           return
         }
-        changeDetails = { date, componentName: lwcComponentName, fileType: lwcFileType, code: lwcCode, note }
+        changeDetails = { date, componentName: lwcComponentName, fileType: lwcFileType, code: lwcCode, note } as LWCChange
         break
       case 'Profile':
         if (!profile) {
           setErrorMessage('Please enter a profile name.')
           return
         }
-        changeDetails = { date, profile, note }
+        changeDetails = { date, profile, note } as ProfileChange
         break
       case 'Permission':
         if (!permissionSet || !permission) {
           setErrorMessage('Please fill in all required fields for Permission Change.')
           return
         }
-        changeDetails = { date, permissionSet, permission, access: { read: readAccess, write: writeAccess }, note }
+        changeDetails = { date, permissionSet, permission, access: { read: readAccess, write: writeAccess }, note } as PermissionChange
         break
       default:
         setErrorMessage('Invalid change type.')
@@ -600,11 +604,19 @@ function ChangeForm({ storyId, addChange, setErrorMessage }: { storyId: string, 
           <Input placeholder="Permission" value={permission} onChange={(e) => setPermission(e.target.value)} />
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2">
-              <Checkbox id="read" checked={readAccess} onCheckedChange={setReadAccess} />
+              <Checkbox
+                id="read"
+                checked={readAccess}
+                onCheckedChange={(checked) => setReadAccess(checked === true)}
+              />
               <Label htmlFor="read">Read Access</Label>
             </div>
             <div className="flex items-center space-x-2">
-              <Checkbox id="write" checked={writeAccess} onCheckedChange={setWriteAccess} />
+              <Checkbox
+                id="write"
+                checked={writeAccess}
+                onCheckedChange={(checked) => setWriteAccess(checked === true)}
+              />
               <Label htmlFor="write">Write Access</Label>
             </div>
           </div>
